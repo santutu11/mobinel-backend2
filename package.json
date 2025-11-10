@@ -1,0 +1,11 @@
+{
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.4.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

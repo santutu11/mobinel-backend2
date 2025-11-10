@@ -1,0 +1,8 @@
+# Dependencias de Node
+/node_modules
+
+# Variables de entorno
+.env
+
+# Base de datos local (SQLite)
+mobinel.db
