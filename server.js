@@ -7,7 +7,8 @@ import Database from 'better-sqlite3';
 import Anthropic from '@anthropic-ai/sdk';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import os from 'os';
+import fs from 'fs'; // Importado para leer el archivo db_schema.sql
+import os from 'os'; // Importado para crear la ruta temporal segura en Render
 
 dotenv.config();
 
@@ -18,7 +19,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'mobinel-secret-key-2025';
 
-// Initialize database (CÓDIGO CORREGIDO PARA RENDER)
+// Initialize database
+// CREAR RUTA SEGURA PARA LA BASE DE DATOS (PARA QUE FUNCIONE EN RENDER)
 const dbPath = process.env.NODE_ENV === 'production' ? `${os.tmpdir()}/mobinel.db` : 'mobinel.db';
 const db = new Database(dbPath);
 
@@ -35,87 +37,36 @@ app.use(cors({
 app.use(express.json());
 
 // ============ DATABASE SETUP ============
-db.exec(`
-  CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    rol TEXT NOT NULL CHECK(rol IN ('cliente', 'trabajador', 'admin')),
-    telefono TEXT,
-    empresa TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
+try {
+    // 1. Leer el esquema SQL del nuevo archivo 'db_schema.sql'
+    const schema = fs.readFileSync('db_schema.sql', 'utf8');
+    
+    // 2. Ejecutar el esquema (crear todas las tablas)
+    db.exec(schema);
 
-  CREATE TABLE IF NOT EXISTS pedidos (
-    id TEXT PRIMARY KEY,
-    cliente_id INTEGER NOT NULL,
-    trabajador_id INTEGER,
-    producto TEXT NOT NULL,
-    material TEXT NOT NULL,
-    dimensiones TEXT NOT NULL,
-    acabado TEXT,
-    color TEXT,
-    cantidad INTEGER DEFAULT 1,
-    precio REAL,
-    estado TEXT NOT NULL DEFAULT 'pendiente' CHECK(estado IN ('pendiente', 'en_proceso', 'en_produccion', 'control_calidad', 'completado', 'entregado', 'cancelado')),
-    progreso INTEGER DEFAULT 0,
-    archivo_diseno TEXT,
-    notas_cliente TEXT,
-    tiempo_estimado INTEGER,
-    fecha_entrega DATE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (cliente_id) REFERENCES usuarios(id),
-    FOREIGN KEY (trabajador_id) REFERENCES usuarios(id)
-  );
+    // 3. Crear usuarios por defecto
+    const checkUsers = db.prepare('SELECT COUNT(*) as count FROM usuarios').get();
+    if (checkUsers.count === 0) {
+        const hashedPassword = bcrypt.hashSync('password123', 10);
+        
+        db.prepare(`
+            INSERT INTO usuarios (nombre, email, password, rol, telefono, empresa) VALUES
+            ('Anthony Ramírez', 'anthony@mobinel.com', ?, 'trabajador', '+1-416-555-0100', 'MOBINEL'),
+            ('Carlos Ruiz', 'carlos.ruiz@email.com', ?, 'cliente', '+57-310-555-0101', 'Constructora Ruiz'),
+            ('María González', 'maria.g@email.com', ?, 'cliente', '+57-320-555-0102', 'Diseño Interior MG'),
+            ('Ana Martínez', 'ana.m@email.com', ?, 'cliente', '+57-315-555-0103', 'Carpintería Martínez'),
+            ('Admin', 'admin@mobinel.com', ?, 'admin', '+57-300-555-0100', 'MOBINEL')
+        `).run(hashedPassword, hashedPassword, hashedPassword, hashedPassword, hashedPassword);
+        
+        console.log('✅ Usuarios de prueba creados');
+    }
 
-  CREATE TABLE IF NOT EXISTS mensajes_nel (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pedido_id TEXT,
-    usuario_id INTEGER,
-    rol TEXT NOT NULL CHECK(rol IN ('user', 'assistant')),
-    contenido TEXT NOT NULL,
-    metadata TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (pedido_id) REFERENCES pedidos(id),
-    FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS parametros_produccion (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    pedido_id TEXT NOT NULL,
-    rpm_husillo INTEGER,
-    profundidad_corte REAL,
-    velocidad_avance INTEGER,
-    presion_pintura REAL,
-    tiempo_curado INTEGER,
-    eficiencia REAL,
-    consumo_energia REAL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
-  );
-`);
-
-
-
-// Create default users if not exist
-const checkUsers = db.prepare('SELECT COUNT(*) as count FROM usuarios').get();
-if (checkUsers.count === 0) {
-  const hashedPassword = bcrypt.hashSync('password123', 10);
-  
-  db.prepare(`
-    INSERT INTO usuarios (nombre, email, password, rol, telefono, empresa) VALUES
-    ('Anthony Ramírez', 'anthony@mobinel.com', ?, 'trabajador', '+1-416-555-0100', 'MOBINEL'),
-    ('Carlos Ruiz', 'carlos.ruiz@email.com', ?, 'cliente', '+57-310-555-0101', 'Constructora Ruiz'),
-    ('María González', 'maria.g@email.com', ?, 'cliente', '+57-320-555-0102', 'Diseño Interior MG'),
-    ('Ana Martínez', 'ana.m@email.com', ?, 'cliente', '+57-315-555-0103', 'Carpintería Martínez'),
-    ('Admin', 'admin@mobinel.com', ?, 'admin', '+57-300-555-0100', 'MOBINEL')
-  `).run(hashedPassword, hashedPassword, hashedPassword, hashedPassword, hashedPassword);
-  
-  console.log('✅ Usuarios de prueba creados');
+} catch (e) {
+    // Si falla, avisamos y cerramos la app.
+    console.error("⛔️ FATAL ERROR: Database setup failed.");
+    console.error("El error se debe a: " + e.message);
+    process.exit(1); 
 }
-
 // ============ AUTH MIDDLEWARE ============
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
